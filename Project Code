@@ -1,0 +1,220 @@
+import ipywidgets as widgets
+from IPython.display import display, clear_output
+import time
+import string
+import itertools
+import hashlib
+
+# --- Core UI Styling ---
+title_html = widgets.HTML("""
+<div style='background-color: #1e1e1e; padding: 15px; border-radius: 8px; border-left: 5px solid #00ff00;'>
+    <h2 style='color: #00ff00; margin: 0; font-family: monospace;'>⚡ John the Ripper - Educational Simulator v2.0</h2>
+    <p style='color: #888; margin: 5px 0 0 0; font-family: monospace;'>Advanced interactive playground for password auditing methodologies</p>
+</div>
+""")
+
+# --- Controls ---
+password_input = widgets.Text(
+    value='abc1',
+    placeholder='Password to crack (keep it short for brute force!)',
+    description='Target Pwd:',
+    layout=widgets.Layout(width='50%')
+)
+
+algo_dropdown = widgets.Dropdown(
+    options=['sha256', 'md5', 'sha1'],
+    value='sha256',
+    description='Hash Algo:',
+    layout=widgets.Layout(width='30%')
+)
+
+attack_type = widgets.Tab()
+
+# Tab 1: Dictionary Settings
+wordlist_input = widgets.Textarea(
+    value='admin, 123456, qwerty, password123, welcome, letmein1, abc1, password, guest, 1234',
+    placeholder='Comma-separated wordlist',
+    description='Wordlist:',
+    layout=widgets.Layout(width='95%', height='80px')
+)
+
+# Tab 2: Brute-Force Settings
+bf_length_slider = widgets.IntSlider(
+    value=3,
+    min=1,
+    max=6,
+    step=1,
+    description='Max Length:',
+    layout=widgets.Layout(width='50%')
+)
+
+charset_select = widgets.SelectMultiple(
+    options=[
+        ('Lowercase (a-z)', string.ascii_lowercase),
+        ('Uppercase (A-Z)', string.ascii_uppercase),
+        ('Digits (0-9)', string.digits),
+        ('Special Symbols (!@#$)', '!@#$%^&*')
+    ],
+    value=(string.ascii_lowercase, string.digits),
+    description='Charset:',
+    layout=widgets.Layout(width='50%')
+)
+
+# Assemble Tab Layouts
+dict_box = widgets.VBox([wordlist_input])
+bf_box = widgets.VBox([bf_length_slider, charset_select])
+
+attack_type.children = [dict_box, bf_box]
+attack_type.set_title(0, '📖 Dictionary Attack')
+attack_type.set_title(1, '🔧 Brute-Force Attack')
+
+start_button = widgets.Button(
+    description='Execute Penetration Test',
+    button_style='danger',
+    tooltip='Simulate the password audit process',
+    icon='shield-virus',
+    layout=widgets.Layout(width='98%', height='40px')
+)
+
+progress_bar = widgets.IntProgress(
+    value=0,
+    min=0,
+    max=100,
+    description='Status:',
+    bar_style='info', # 'success', 'info', 'warning', 'danger' or ''
+    style={'bar_color': '#00ff00'},
+    layout=widgets.Layout(width='98%', visibility='hidden')
+)
+
+output_area = widgets.Output(
+    layout=widgets.Layout(border='1px solid #00ff00', background_color='#111', padding='10px')
+)
+
+# --- Cracking Engine Functions ---
+def hash_password_extended(password, algorithm):
+    password_bytes = password.encode('utf-8')
+    if algorithm == 'sha256':
+        return hashlib.sha256(password_bytes).hexdigest()
+    elif algorithm == 'md5':
+        return hashlib.md5(password_bytes).hexdigest()
+    elif algorithm == 'sha1':
+        return hashlib.sha1(password_bytes).hexdigest()
+    return None
+
+def run_visual_dictionary(target_hash, wordlist, algorithm):
+    print("\033[94m[*] Parsing wordlist and starting attack stream...\033[0m")
+    progress_bar.max = len(wordlist)
+    progress_bar.value = 0
+    start_time = time.time()
+    attempts = 0
+    
+    for word in wordlist:
+        attempts += 1
+        progress_bar.value = attempts
+        hashed_word = hash_password_extended(word, algorithm)
+        
+        # Yield back to UI occasionally for fluid rendering
+        if attempts % 5 == 0:
+            time.sleep(0.01) 
+            
+        if hashed_word == target_hash:
+            elapsed = time.time() - start_time
+            hps = attempts / (elapsed + 0.0001)
+            print(f"\n\033[92m[+] SUCCESS! Match found!\033[0m")
+            print(f"    [Plaintext]:  \033[1m{word}\033[0m")
+            print(f"    [Hash]:       {hashed_word}")
+            print(f"    [Attempts]:   {attempts}")
+            print(f"    [Duration]:   {elapsed:.4f} seconds")
+            print(f"    [Speed]:      {hps:.2f} hashes/sec")
+            return True
+            
+    print("\n\033[91m[-] FAILURE: Target hash not in wordlist.\033[0m")
+    return False
+
+def run_visual_brute_force(target_hash, max_len, charset_tuples, algorithm):
+    joined_charset = "".join(charset_tuples)
+    print(f"\033[94m[*] Strategy Selected: Pure Brute-Force\033[0m")
+    print(f"[*] Active Key space: \033[93m{joined_charset}\033[0m")
+    
+    # Estimate total search space sizes
+    total_combinations = sum(len(joined_charset) ** r for r in range(1, max_len + 1))
+    print(f"[*] Total permutations to test: {total_combinations:,}")
+    
+    progress_bar.max = total_combinations
+    progress_bar.value = 0
+    
+    start_time = time.time()
+    attempts = 0
+    
+    for length in range(1, max_len + 1):
+        for guess in itertools.product(joined_charset, repeat=length):
+            attempts += 1
+            guess_word = "".join(guess)
+            hashed_guess = hash_password_extended(guess_word, algorithm)
+            
+            # Periodic UI updates so we do not block the thread
+            if attempts % 1000 == 0:
+                progress_bar.value = attempts
+                # Simple animation trick
+                print(f"[*] Status: Tested {attempts}/{total_combinations} keys...", end='\r')
+                
+            if hashed_guess == target_hash:
+                progress_bar.value = attempts
+                elapsed = time.time() - start_time
+                hps = attempts / (elapsed + 0.0001)
+                print(f"\n\n\033[92m[+] SUCCESS! Target key recovered!\033[0m")
+                print(f"    [Plaintext]:  \033[1m{guess_word}\033[0m")
+                print(f"    [Attempts]:   {attempts}")
+                print(f"    [Duration]:   {elapsed:.4f} seconds")
+                print(f"    [Speed]:      {hps:.2f} hashes/sec")
+                return True
+                
+    print(f"\n\033[91m[-] FAILURE: Key space fully searched up to length {max_len}.\033[0m")
+    return False
+
+# --- Event Handler ---
+def on_start_clicked(b):
+    progress_bar.layout.visibility = 'visible'
+    with output_area:
+        clear_output()
+        pwd = password_input.value.strip()
+        algo = algo_dropdown.value
+        active_tab = attack_type.selected_index
+        
+        if not pwd:
+            print("\033[91m[!] Error: Please provide a target password to crack.\033[0m")
+            return
+            
+        target_hash = hash_password_extended(pwd, algo)
+        print(f"\033[95m[+] Target Hash Prepared: {target_hash} ({algo.upper()})\033[0m")
+        print("=" * 70)
+        
+        if active_tab == 0:
+            # Dictionary Mode
+            words = [w.strip() for w in wordlist_input.value.split(',') if w.strip()]
+            run_visual_dictionary(target_hash, words, algo)
+        else:
+            # Brute Force Mode
+            max_len = bf_length_slider.value
+            charsets = charset_select.value
+            if not charsets:
+                print("\033[91m[!] Error: Please select at least one character set!\033[0m")
+                return
+            run_visual_brute_force(target_hash, max_len, charsets, algo)
+
+start_button.on_click(on_start_clicked)
+
+# --- Layout Rendering ---
+control_box = widgets.HBox([password_input, algo_dropdown])
+layout = widgets.VBox([
+    title_html, 
+    widgets.Label("🛡️ Configure Target Parameters:"),
+    control_box,
+    widgets.Label("⚙️ Attack Strategy & Parameters:"),
+    attack_type,
+    start_button,
+    progress_bar,
+    widgets.Label("📟 Real-Time Decryption Stream Output:"),
+    output_area
+])
+display(layout)
